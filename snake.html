@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ヘビいっぱいゲーム</title>
+<style>
+*{box-sizing:border-box}
+body{
+ margin:0;background:#111c2e;color:white;
+ font-family:Arial,sans-serif;text-align:center;
+}
+h1{margin:12px;font-size:25px}
+#score{font-size:22px;margin:10px}
+canvas{
+ background:#17283c;border:2px solid #40536b;
+ width:min(95vw,600px);height:min(95vw,600px);
+ touch-action:none;
+}
+button{
+ font-size:22px;padding:12px 25px;margin:5px;
+ border:0;border-radius:12px;
+ background:#5278ff;color:white;
+}
+#menu{
+ position:fixed;inset:0;background:#0009;
+ display:flex;justify-content:center;align-items:center;
+}
+.box{background:#253a56;padding:25px;border-radius:20px}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+
+<h1>🐍 ヘビいっぱいゲーム</h1>
+<div id="score">スコア: 0</div>
+<canvas id="game" width="600" height="600"></canvas>
+<br>
+<button onclick="startGame()">スタート / リスタート</button>
+
+<div id="menu">
+<div class="box">
+<h2>🐍 ヘビいっぱいゲーム</h2>
+<p>エサを集めて大きくなろう！</p>
+<p>指でスライドして方向を変えよう！</p>
+<button onclick="startGame()">ゲーム開始</button>
+</div>
+</div>
+
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+
+const SIZE=30;
+const CELL=20;
+
+let player;
+let bots=[];
+let foods=[];
+let score=0;
+let running=false;
+let loop;
+
+let direction={x:1,y:0};
+let nextDirection={x:1,y:0};
+
+const colors=[
+"#ff3864","#ffbb33","#a855f7",
+"#22ddbb","#ff66cc","#66dd44",
+"#4499ff","#ff7744","#ffff44",
+"#00ffff","#ff00ff","#ffffff"
+];
+
+function randomPos(){
+ return {
+  x:Math.floor(Math.random()*SIZE),
+  y:Math.floor(Math.random()*SIZE)
+ };
+}
+
+function createSnake(x,y,color){
+ return {
+  body:[{x,y},{x:x-1,y},{x:x-2,y}],
+  color:color,
+  direction:{x:1,y:0},
+  alive:true
+ };
+}
+
+function createFood(){
+ return {
+  ...randomPos(),
+  color:colors[Math.floor(Math.random()*colors.length)]
+ };
+}
+
+function startGame(){
+ player=createSnake(15,15,"#5577ff");
+ bots=[];
+
+ for(let i=0;i<12;i++){
+  let p=randomPos();
+  bots.push(createSnake(p.x,p.y,colors[i]));
+ }
+
+ foods=[];
+ for(let i=0;i<100;i++){
+  foods.push(createFood());
+ }
+
+ score=0;
+ direction={x:1,y:0};
+ nextDirection={x:1,y:0};
+ running=true;
+
+ document.getElementById("score").textContent="スコア: 0";
+ document.getElementById("menu").classList.add("hidden");
+
+ clearInterval(loop);
+ loop=setInterval(update,100);
+
+ draw();
+}
+
+function turn(x,y){
+ if(x===-direction.x&&y===-direction.y)return;
+ nextDirection={x,y};
+}
+
+// キーボード操作
+document.addEventListener("keydown",e=>{
+ const k=e.key.toLowerCase();
+
+ if(k==="arrowup"||k==="w"){
+  e.preventDefault();
+  turn(0,-1);
+ }
+
+ if(k==="arrowdown"||k==="s"){
+  e.preventDefault();
+  turn(0,1);
+ }
+
+ if(k==="arrowleft"||k==="a"){
+  e.preventDefault();
+  turn(-1,0);
+ }
+
+ if(k==="arrowright"||k==="d"){
+  e.preventDefault();
+  turn(1,0);
+ }
+});
+
+// ヘビの移動
+function moveSnake(s){
+ let h={
+  x:s.body[0].x+s.direction.x,
+  y:s.body[0].y+s.direction.y
+ };
+
+ // 壁を通り抜ける
+ if(h.x<0)h.x=SIZE-1;
+ if(h.x>=SIZE)h.x=0;
+ if(h.y<0)h.y=SIZE-1;
+ if(h.y>=SIZE)h.y=0;
+
+ s.body.unshift(h);
+
+ let ate=false;
+
+ for(let i=0;i<foods.length;i++){
+  if(h.x===foods[i].x&&h.y===foods[i].y){
+   foods.splice(i,1);
+   foods.push(createFood());
+   ate=true;
+   break;
+  }
+ }
+
+ if(!ate)s.body.pop();
+}
+
+// CPUの動き
+function botAI(bot){
+ let h=bot.body[0];
+ let nearest=null;
+ let dist=Infinity;
+
+ for(const f of foods){
+  let d=Math.abs(f.x-h.x)+Math.abs(f.y-h.y);
+
+  if(d<dist){
+   dist=d;
+   nearest=f;
+  }
+ }
+
+ if(!nearest)return;
+
+ let dx=nearest.x-h.x;
+ let dy=nearest.y-h.y;
+
+ let choices=[];
+
+ if(Math.abs(dx)>Math.abs(dy)){
+  choices=[
+   {x:Math.sign(dx),y:0},
+   {x:0,y:Math.sign(dy)}
+  ];
+ }else{
+  choices=[
+   {x:0,y:Math.sign(dy)},
+   {x:Math.sign(dx),y:0}
+  ];
+ }
+
+ choices.push(
+  {x:1,y:0},
+  {x:-1,y:0},
+  {x:0,y:1},
+  {x:0,y:-1}
+ );
+
+ for(let d of choices){
+  if(d.x===-bot.direction.x&&
+     d.y===-bot.direction.y)continue;
+
+  bot.direction=d;
+  break;
+ }
+}
+
+// ゲーム進行
+function update(){
+ if(!running)return;
+
+ direction=nextDirection;
+ player.direction=direction;
+
+ bots.forEach(botAI);
+
+ moveSnake(player);
+
+ bots.filter(b=>b.alive).forEach(moveSnake);
+
+ let h=player.body[0];
+
+ // 自分にぶつかった
+ if(player.body.slice(1).some(p=>
+  p.x===h.x&&p.y===h.y
+  )){
+  gameOver();
+  return;
+ }
+
+ // 他のヘビにぶつかった
+ if(bots.some(b=>
+  b.alive&&b.body.some(p=>
+   p.x===h.x&&p.y===h.y
+  ))){
+  gameOver();
+  return;
+ }
+
+ // CPUの衝突判定
+ bots.forEach(b=>{
+  if(!b.alive)return;
+
+  let bh=b.body[0];
+
+  if(b.body.slice(1).some(p=>
+   p.x===bh.x&&p.y===bh.y
+  )){
+   b.alive=false;
+  }
+ });
+
+ score=player.body.length-3;
+
+ document.getElementById("score").textContent=
+  "スコア: "+score;
+
+ draw();
+}
+
+function gameOver(){
+ running=false;
+ clearInterval(loop);
+
+ document.getElementById("menu").classList.remove("hidden");
+ document.querySelector("#menu h2").textContent="ゲームオーバー";
+ document.querySelector("#menu p").textContent="スコア: "+score;
+}
+
+// ヘビの描画
+function drawSnake(s){
+ s.body.forEach((p,i)=>{
+  ctx.fillStyle=s.color;
+
+  ctx.beginPath();
+  ctx.arc(
+   p.x*CELL+10,
+   p.y*CELL+10,
+   9,
+   0,
+   Math.PI*2
+  );
+  ctx.fill();
+
+  // 目
+  if(i===0){
+   ctx.fillStyle="white";
+
+   ctx.beginPath();
+   ctx.arc(p.x*CELL+13,p.y*CELL+6,3,0,Math.PI*2);
+   ctx.arc(p.x*CELL+13,p.y*CELL+14,3,0,Math.PI*2);
+   ctx.fill();
+  }
+ });
+}
+
+// 画面描画
+function draw(){
+ ctx.fillStyle="#17283c";
+ ctx.fillRect(0,0,600,600);
+
+ // エサ
+ foods.forEach(f=>{
+  ctx.shadowBlur=10;
+  ctx.shadowColor=f.color;
+  ctx.fillStyle=f.color;
+
+  ctx.beginPath();
+  ctx.arc(
+   f.x*CELL+10,
+   f.y*CELL+10,
+   5,
+   0,
+   Math.PI*2
+  );
+  ctx.fill();
+ });
+
+ ctx.shadowBlur=0;
+
+ // CPUのヘビ
+ bots.filter(b=>b.alive).forEach(drawSnake);
+
+ // 自分
+ if(player)drawSnake(player);
+}
+
+// =========================
+// スマホ画面スライド操作
+// =========================
+
+let touchX=0;
+let touchY=0;
+
+canvas.style.touchAction="none";
+
+canvas.addEventListener("touchstart",function(e){
+ e.preventDefault();
+
+ touchX=e.touches[0].clientX;
+ touchY=e.touches[0].clientY;
+},{passive:false});
+
+canvas.addEventListener("touchmove",function(e){
+ e.preventDefault();
+
+ let x=e.touches[0].clientX;
+ let y=e.touches[0].clientY;
+
+ let dx=x-touchX;
+ let dy=y-touchY;
+
+ if(Math.abs(dx)>12||Math.abs(dy)>12){
+
+  // 横方向のスライド
+  if(Math.abs(dx)>Math.abs(dy)){
+   turn(dx>0?1:-1,0);
+  }
+
+  // 縦方向のスライド
+  else{
+   turn(0,dy>0?1:-1);
+  }
+
+  touchX=x;
+  touchY=y;
+ }
+},{passive:false});
+
+canvas.addEventListener("touchend",function(e){
+ e.preventDefault();
+},{passive:false});
+
+draw();
+
+</script>
+</body>
+</html>
